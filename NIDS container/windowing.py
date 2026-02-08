@@ -21,6 +21,8 @@ import threading
 import time
 from collections import defaultdict, deque
 from typing import Callable
+from scapy.layers.inet import IP
+
 
 # default: group by src IP (safe for many NIDS tasks)
 def default_keyfn(pkt):
