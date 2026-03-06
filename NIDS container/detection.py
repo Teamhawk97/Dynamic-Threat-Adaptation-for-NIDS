@@ -96,6 +96,14 @@ def handle_window(key, pkts, model):
                 f"        Stats: {unique_ports} ports targetted, "
                 f"{syn_count} SYNs ({syn_ratio:.1%} of traffic)"
             )
+
+            # ----- FEW SHOT LEARNING -----
+            vector = build_ml_vector(fv)
+
+            model.add_example("syn_scan", vector)
+            model.save("/root/app/model.json")
+
+            print("[ML] Learned new class: syn_scan")
             
     elif is_port_scan:
         if should_alert(key):
