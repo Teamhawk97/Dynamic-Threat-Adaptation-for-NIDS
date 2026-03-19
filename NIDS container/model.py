@@ -14,7 +14,7 @@ class PrototypeClassifier:
     def __init__(
         self,
         distance: str = "euclidean",
-        known_threshold: float = 3.0,
+        known_threshold: float = 8.0,
         min_samples_per_class: int = 1,
     ):
         self.distance = distance

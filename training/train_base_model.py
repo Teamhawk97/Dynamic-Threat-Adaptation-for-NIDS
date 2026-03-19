@@ -97,27 +97,51 @@ def build_feature_vectors(df):
 
     pkt_count = df["packets_count"].clip(lower=1)
 
+    # ----------------------------
+    # Ratios
+    # ----------------------------
     syn_ratio = df["syn_flag_counts"] / pkt_count
     rst_ratio = df["rst_flag_counts"] / pkt_count
 
     udp_ratio = (df["protocol"] == 17).astype(int)
     icmp_ratio = (df["protocol"] == 1).astype(int)
 
-    unique_ports = df["dst_port"]
+    # ----------------------------
+    # Log + normalization
+    # ----------------------------
+    packet_count_log = np.log1p(pkt_count) / 10.0
+    unique_ports_log = np.log1p(df["dst_port"]) / 10.0
 
-    avg_interarrival = df["packets_IAT_mean"].clip(upper=2000)
+    # ----------------------------
+    # Timing
+    # ----------------------------
+    avg_interarrival = df["packets_IAT_mean"].clip(upper=2000) / 2000.0
 
-    pkt_size_std = df["payload_bytes_std"]
+    # ----------------------------
+    # Packet size
+    # ----------------------------
+    pkt_size_std = df["payload_bytes_std"].clip(upper=1500) / 1500.0
 
+    # ----------------------------
+    # Rate features (DIRECTLY AVAILABLE ✅)
+    # ----------------------------
+    pps = df["packets_rate"].clip(upper=10000) / 10000.0
+    bps = df["bytes_rate"].clip(upper=1_000_000) / 1_000_000.0
+
+    # ----------------------------
+    # Final vector (10D)
+    # ----------------------------
     vectors = np.column_stack([
-        np.log1p(pkt_count),
-        np.log1p(unique_ports),
+        packet_count_log,
+        unique_ports_log,
         syn_ratio,
         rst_ratio,
         udp_ratio,
         icmp_ratio,
         avg_interarrival,
-        pkt_size_std
+        pkt_size_std,
+        pps,
+        bps
     ])
 
     return vectors
