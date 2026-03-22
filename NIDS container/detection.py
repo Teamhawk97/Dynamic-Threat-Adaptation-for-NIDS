@@ -89,24 +89,9 @@ def should_alert(src):
 
 
 # ----------------------------
-# Shared Detection Logic
+# RULE-BASED DETECTION ONLY
 # ----------------------------
-def process_behavior(key, pkts, model, context="WINDOW"):
-    """
-    Shared detection logic for both window + flow
-    """
-
-    if not pkts or len(pkts) < 5:
-        return
-
-    if key == "unknown" or key == SELF_IP:
-        return
-
-    # ----------------------------
-    # Feature Extraction
-    # ----------------------------
-    fv = features_from_packets(pkts)
-    vector = build_ml_vector(fv)
+def detect_rules(key, fv, context):
 
     pkt_count = fv.get("packet_count", 1)
     syn_count = fv.get("tcp_syn_count", 0)
@@ -118,71 +103,117 @@ def process_behavior(key, pkts, model, context="WINDOW"):
 
     pps = pkt_count / max(duration, 0.001)
 
-    # ----------------------------
-    # 1. SYN Scan Detection
-    # ----------------------------
-    is_port_scan = unique_ports > PORT_SCAN_THRESHOLD
-    is_syn_heavy = syn_ratio > SYN_RATIO_THRESHOLD
-
-    if is_port_scan and is_syn_heavy:
+    # SYN scan
+    if unique_ports > PORT_SCAN_THRESHOLD and syn_ratio > SYN_RATIO_THRESHOLD:
         if should_alert(key):
             print(f"[ALERT][{context}] SYN Scan detected from {key}")
             print(f"        {unique_ports} ports, {syn_count} SYNs ({syn_ratio:.1%})")
 
-    elif is_port_scan:
+    elif unique_ports > PORT_SCAN_THRESHOLD:
         if should_alert(key):
             print(f"[ALERT][{context}] Port Scan from {key} ({unique_ports} ports)")
 
-    # ----------------------------
-    # 2. DDoS Detection
-    # ----------------------------
+    # DDoS
     if pps > PPS_THRESHOLD and syn_ratio > SYN_FLOOD_RATIO:
         if should_alert(key):
             print(f"[ALERT][{context}] Possible DDoS from {key}")
             print(f"        PPS={pps:.1f}, SYN ratio={syn_ratio:.2f}")
 
-    # ----------------------------
-    # 3. Data Exfiltration Detection
-    # ----------------------------
+    # Data Exfiltration
     if total_bytes > BYTES_EXFIL_THRESHOLD and duration > DURATION_THRESHOLD:
         if should_alert(key):
             print(f"[ALERT][{context}] Possible Data Exfiltration from {key}")
             print(f"        Bytes={total_bytes}, Duration={duration:.2f}s")
 
-    # ----------------------------
-    # 4. ML Classification
-    # ----------------------------
+
+# ----------------------------
+# ML CLASSIFICATION ONLY
+# ----------------------------
+def run_ml(key, fv, model, context):
+
+    vector = build_ml_vector(fv)
     label, dist = model.classify(vector)
 
-    if model.classes:
-        if label == "UNKNOWN":
-            print(f"[ML][{context}] UNKNOWN behavior from {key} (dist={dist:.2f})")
-            unknown_buffer.add(vector)
-            print("[DEBUG] unknown buffer size:", unknown_buffer.size())
-        else:
-            print(f"[ML][{context}] KNOWN:{label} from {key} (dist={dist:.2f})")
+    if not model.classes:
+        return
+
+    if label == "UNKNOWN":
+        print(f"[ML][{context}] UNKNOWN behavior from {key} (dist={dist:.2f})")
+        unknown_buffer.add(vector)
+        print("[DEBUG] unknown buffer size:", unknown_buffer.size())
+    else:
+        print(f"[ML][{context}] KNOWN:{label} from {key} (dist={dist:.2f})")
 
 
 # ----------------------------
-# Window-based Entry
+# WINDOW → RULES ONLY
 # ----------------------------
 def handle_window(key, pkts, model):
-    process_behavior(key, pkts, model, context="WINDOW")
+
+    if not pkts or len(pkts) < 5:
+        return
+
+    if key == "unknown" or key == SELF_IP:
+        return
+
+    fv = features_from_packets(pkts)
+
+    # RULES HERE
+    detect_rules(key, fv, context="WINDOW")
+    # ML WNDOW 
+    run_ml(key, fv, model, context="WINDOW")
+    
 
 
 # ----------------------------
-# Flow-based Entry
+# FLOW → ML ONLY
 # ----------------------------
 def handle_flow(flow_key, pkts, model):
-    """
-    flow_key = (src_ip, dst_ip, sport, dport, proto)
-    """
-    try:
+
+    # ----------------------------
+    # Basic validation
+    # ----------------------------
+    if not pkts:
+        return
+
+    if isinstance(flow_key, tuple) and len(flow_key) >= 1:
         src_ip = flow_key[0]
-    except Exception:
+    else:
         src_ip = "unknown"
 
-    process_behavior(src_ip, pkts, model, context="FLOW")
+    if src_ip == "unknown" or src_ip == SELF_IP:
+        return
+
+    # ----------------------------
+    # Feature extraction
+    # ----------------------------
+    fv = features_from_packets(pkts)
+
+    pkt_count = fv.get("packet_count", 0)
+    duration = fv.get("flow_duration", 0.0)
+    total_bytes = fv.get("packet_count", 0) * fv.get("avg_packet_size", 0.0)
+
+    # ----------------------------
+    # 🔥 FLOW FILTERING (IMPORTANT)
+    # ----------------------------
+
+    # 1. Ignore tiny flows (most important)
+    if pkt_count < 3:
+        return
+
+    # 2. Ignore ultra-short flows (noise)
+    if duration < 0.05:
+        return
+
+    # 3. Ignore very small data transfers
+    if total_bytes < 100:
+        return
+
+    # ----------------------------
+    # ML classification
+    # ----------------------------
+    run_ml(src_ip, fv, model, context="FLOW")
+
 
 
 # ----------------------------

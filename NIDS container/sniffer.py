@@ -1,9 +1,19 @@
 # sniffer.py
-from scapy.all import sniff
-from detection import analyze_packet, handle_window
-from windowing import WindowManager
 
-# Window manager is fine as a module-level object
+from scapy.all import sniff
+from detection import analyze_packet, handle_window, handle_flow
+from windowing import WindowManager
+from flowing import FlowManager
+
+# ----------------------------
+# TOGGLES
+# ----------------------------
+USE_WINDOW = True
+USE_FLOW = True
+
+# ----------------------------
+# Managers
+# ----------------------------
 wm = WindowManager(
     window_seconds=1.0,
     emit_interval=0.5,
@@ -11,23 +21,49 @@ wm = WindowManager(
     packet_capacity_per_key=1000
 )
 
+fm = FlowManager(
+    flow_timeout=2.0,
+    emit_interval=1.0,
+    max_flows=1000
+)
+
+
 def start_sniffer(model, interface="eth0"):
     print(f"[+] Starting packet capture on {interface} ...")
 
-    # define callback WITH access to model (closure)
-    def wm_callback(key, pkts):
-        """
-        key: the grouping key (e.g. source IP)
-        pkts: list of scapy packets within the window
-        """
-        handle_window(key, pkts, model)
+    # ----------------------------
+    # WINDOW CALLBACK
+    # ----------------------------
+    if USE_WINDOW:
+        def wm_callback(key, pkts):
+            handle_window(key, pkts, model)
 
-    wm.set_window_callback(wm_callback)
-    wm.start()
+        wm.set_window_callback(wm_callback)
+        wm.start()
+        print("[+] WindowManager ENABLED")
 
+    # ----------------------------
+    # FLOW CALLBACK
+    # ----------------------------
+    if USE_FLOW:
+        def fm_callback(flow_key, pkts):
+            handle_flow(flow_key, pkts, model)
+
+        fm.set_flow_callback(fm_callback)
+        fm.start()
+        print("[+] FlowManager ENABLED")
+
+    # ----------------------------
+    # Packet handler
+    # ----------------------------
     def combined_handler(pkt):
-        analyze_packet(pkt)   # still empty (correct)
-        wm.add_packet(pkt)
+        analyze_packet(pkt)
+
+        if USE_WINDOW:
+            wm.add_packet(pkt)
+
+        if USE_FLOW:
+            fm.add_packet(pkt)
 
     sniff(
         iface=interface,
