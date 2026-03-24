@@ -13,8 +13,8 @@ class PrototypeClassifier:
 
     def __init__(
         self,
-        distance: str = "euclidean",
-        known_threshold: float = 8.0,
+        distance: str = "cosine",        # 🔥 DEFAULT FIXED
+        known_threshold: float = 0.2,    # 🔥 IMPORTANT (for cosine)
         min_samples_per_class: int = 1,
     ):
         self.distance = distance
@@ -25,6 +25,16 @@ class PrototypeClassifier:
         self.classes: Dict[str, Dict] = {}
 
     # ------------------------------------------------
+    # Utility
+    # ------------------------------------------------
+
+    def _normalize(self, v: List[float]) -> List[float]:
+        norm = math.sqrt(sum(x * x for x in v))
+        if norm == 0:
+            return v
+        return [x / norm for x in v]
+
+    # ------------------------------------------------
     # Distance functions
     # ------------------------------------------------
 
@@ -32,14 +42,12 @@ class PrototypeClassifier:
         return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
 
     def _cosine(self, a: List[float], b: List[float]) -> float:
+        # 🔥 CRITICAL FIX: normalize inside model
+        a = self._normalize(a)
+        b = self._normalize(b)
+
         dot = sum(x * y for x, y in zip(a, b))
-        na = math.sqrt(sum(x * x for x in a))
-        nb = math.sqrt(sum(y * y for y in b))
-
-        if na == 0 or nb == 0:
-            return 1.0
-
-        return 1.0 - (dot / (na * nb))
+        return 1.0 - dot  # cosine distance
 
     def _distance(self, a: List[float], b: List[float]) -> float:
         if self.distance == "cosine":
@@ -62,15 +70,14 @@ class PrototypeClassifier:
         best_dist = float("inf")
 
         for label, data in self.classes.items():
-
             proto = data["prototype"]
-
             d = self._distance(vector, proto)
 
             if d < best_dist:
                 best_dist = d
                 best_label = label
 
+        # 🔥 STRICT UNKNOWN LOGIC
         if best_dist <= self.known_threshold:
             return best_label, best_dist
 
@@ -82,7 +89,7 @@ class PrototypeClassifier:
 
     def add_example(self, label: str, vector: List[float]):
         """
-        Update prototype using running mean.
+        Update prototype using running mean
         """
 
         if label not in self.classes:
@@ -106,10 +113,8 @@ class PrototypeClassifier:
         data["count"] = n + 1
 
     def has_stable_class(self, label: str) -> bool:
-
         if label not in self.classes:
             return False
-
         return self.classes[label]["count"] >= self.min_samples_per_class
 
     # ------------------------------------------------
@@ -144,14 +149,14 @@ class PrototypeClassifier:
         with open(path, "r") as f:
             data = json.load(f)
 
-        model.distance = data.get("distance", "euclidean")
-        model.known_threshold = data.get("known_threshold", 3.0)
+        # 🔥 IMPORTANT: preserve trained config
+        model.distance = data.get("distance", "cosine")
+        model.known_threshold = data.get("known_threshold", 0.2)
         model.min_samples_per_class = data.get("min_samples_per_class", 1)
 
         model.classes = data.get("classes", {})
 
         print("[ML] Loaded base model with classes:")
-
         for c in model.classes:
             print("   ", c, "(samples:", model.classes[c]["count"], ")")
 

@@ -37,45 +37,49 @@ SELF_IP = socket.gethostbyname(socket.gethostname())
 # ML Feature Builder
 # ----------------------------
 def build_ml_vector(fv: dict):
+    def norm(x, max_val):
+        return min(x, max_val) / max_val
 
-    pkt_count = fv.get("packet_count", 0) or 1
+    # Base values
+    pkt_count = fv.get("packet_count", 1) or 1
+    duration = fv.get("flow_duration", 0.001)
+    if duration <= 0:
+        duration = 0.001
 
-    # ratios
-    tcp_syn_ratio = fv.get("tcp_syn_count", 0) / pkt_count
-    tcp_rst_ratio = fv.get("tcp_rst_count", 0) / pkt_count
-    udp_ratio     = fv.get("udp_count", 0) / pkt_count
-    icmp_ratio    = fv.get("icmp_count", 0) / pkt_count
+    # 🔥 FIX: Use the exact total_bytes already calculated in fv
+    total_bytes = fv.get("total_bytes", 0)
 
-    # normalized logs
-    packet_count_log = math.log1p(pkt_count) / 10.0
-    unique_ports_log = math.log1p(fv.get("unique_dst_ports_count", 0)) / 10.0
+    # 1. SHAPE FEATURES (bounded)
+    syn_ratio = fv.get("tcp_syn_count", 0) / pkt_count
+    rst_ratio = fv.get("tcp_rst_count", 0) / pkt_count
+    
+    # 🔥 FIX: Removed the * 0.2 so the UDP/ICMP tripwires fire at full strength
+    udp_ratio = fv.get("udp_count", 0) / pkt_count
+    icmp_ratio = fv.get("icmp_count", 0) / pkt_count
 
-    # normalized timing
-    avg_inter_ms = min(fv.get("avg_interarrival_ms", 0.0), 2000.0) / 2000.0
+    # 2. VELOCITY FEATURES (scaled)
+    pps = pkt_count / duration
+    bps = total_bytes / duration
 
-    # normalized size
-    pkt_size_std = min(fv.get("pkt_size_std", 0.0), 1500.0) / 1500.0
+    # 🔥 FIX: Matched the caps to training.py
+    pps = norm(pps, 50000.0)
+    bps = norm(bps, 10000000.0)
 
-    # rate features (NEW - IMPORTANT)
-    pps = fv.get("packets_per_second", 0.0)
-    pps = min(pps, 10000.0) / 10000.0
+    # 3. FOOTPRINT FEATURES
+    pkt_size_std = norm(fv.get("pkt_size_std", 0.0), 1500.0)
+    avg_interarrival = norm(min(fv.get("avg_interarrival_ms", 0.0), 2000.0), 2000.0)
+    unique_ports_log = norm(math.log1p(fv.get("unique_dst_ports_count", 0)), 10.0)
+    packet_count_log = norm(math.log1p(pkt_count), 10.0)
 
-    bps = fv.get("bytes_per_second", 0.0)
-    bps = min(bps, 1_000_000.0) / 1_000_000.0
+    # 4. TIME FEATURE
+    duration_log = norm(math.log1p(duration), 10.0)
 
+    # FINAL VECTOR (11 FEATURES)
     return [
-        packet_count_log,
-        unique_ports_log,
-        tcp_syn_ratio,
-        tcp_rst_ratio,
-        udp_ratio,
-        icmp_ratio,
-        avg_inter_ms,
-        pkt_size_std,
-        pps,
-        bps
+        syn_ratio, rst_ratio, udp_ratio, icmp_ratio,
+        pps, bps, pkt_size_std, avg_interarrival,
+        unique_ports_log, packet_count_log, duration_log
     ]
-
 # ----------------------------
 # Alert Throttling
 # ----------------------------
@@ -130,7 +134,6 @@ def detect_rules(key, fv, context):
 # ML CLASSIFICATION ONLY
 # ----------------------------
 def run_ml(key, fv, model, context):
-
     vector = build_ml_vector(fv)
     label, dist = model.classify(vector)
 
@@ -140,8 +143,14 @@ def run_ml(key, fv, model, context):
     if label == "UNKNOWN":
         print(f"[ML][{context}] UNKNOWN behavior from {key} (dist={dist:.2f})")
         unknown_buffer.add(vector)
-        print("[DEBUG] unknown buffer size:", unknown_buffer.size())
+        
+        # 🔥 FIX: Apply Local Few-Shot Learning so the container immunizes itself!
+        zd_name = f"ZD_LOCAL_{int(time.time())}"
+        model.add_example(zd_name, vector)
+        print(f"   [+] Local immunity generated: {zd_name}")
+        
     else:
+        # Optional: Comment this out later if normal traffic spams your console too much
         print(f"[ML][{context}] KNOWN:{label} from {key} (dist={dist:.2f})")
 
 
@@ -161,7 +170,7 @@ def handle_window(key, pkts, model):
     # RULES HERE
     detect_rules(key, fv, context="WINDOW")
     # ML WNDOW 
-    run_ml(key, fv, model, context="WINDOW")
+    #run_ml(key, fv, model, context="WINDOW") #it is removed
     
 
 

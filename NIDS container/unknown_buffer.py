@@ -1,5 +1,3 @@
-# unknown_buffer.py
-
 import threading
 import time
 import math
@@ -27,6 +25,8 @@ class UnknownBuffer:
         self.rate_limit = rate_limit
         self.last_add_time = 0
         self.counter = 0
+        
+        self.last_cleanup = time.time() # 🔥 ADDED: Track last GC run
 
         self.lock = threading.Lock()
 
@@ -35,10 +35,16 @@ class UnknownBuffer:
     # ------------------------------------------------
 
     def _similar(self, a, b, threshold=0.05):
+        # 🔥 FIX: Use Cosine Distance to match model.py perfectly
+        dot = sum(x * y for x, y in zip(a, b))
+        na = math.sqrt(sum(x * x for x in a))
+        nb = math.sqrt(sum(y * y for y in b))
 
-        diff = sum(abs(x - y) for x, y in zip(a, b))
+        if na == 0 or nb == 0:
+            return False
 
-        return diff < threshold
+        dist = 1.0 - (dot / (na * nb))
+        return dist < threshold
 
     # ------------------------------------------------
     # Add unknown vector
@@ -62,7 +68,6 @@ class UnknownBuffer:
 
             # ---------- deduplication ----------
             for v in self.vectors:
-
                 if self._similar(v, vector):
                     return
 
@@ -70,33 +75,28 @@ class UnknownBuffer:
             self.vectors.append(vector)
             self.timestamps.append(now)
 
-            # ---------- cleanup old vectors ----------
-            self._cleanup_old()
+            # ---------- periodic cleanup (CPU Saver) ----------
+            # 🔥 FIX: Only run garbage collection every 5 seconds, not every packet
+            if now - self.last_cleanup > 5.0:
+                self._cleanup_old(now)
+                self.last_cleanup = now
 
             # ---------- enforce memory limit ----------
+            # 🔥 FIX: O(1) removal instead of O(N) search. Oldest is always index 0.
             if len(self.vectors) > self.max_vectors:
-
-                oldest = min(
-                    range(len(self.timestamps)),
-                    key=lambda i: self.timestamps[i]
-                )
-
-                self.vectors.pop(oldest)
-                self.timestamps.pop(oldest)
+                self.vectors.pop(0)
+                self.timestamps.pop(0)
 
     # ------------------------------------------------
     # Remove old vectors
     # ------------------------------------------------
 
-    def _cleanup_old(self):
-
-        now = time.time()
+    def _cleanup_old(self, now):
 
         new_vectors = []
         new_timestamps = []
 
         for v, ts in zip(self.vectors, self.timestamps):
-
             if now - ts < self.max_age:
                 new_vectors.append(v)
                 new_timestamps.append(ts)
@@ -127,6 +127,5 @@ class UnknownBuffer:
     # ------------------------------------------------
 
     def size(self):
-
         with self.lock:
             return len(self.vectors)

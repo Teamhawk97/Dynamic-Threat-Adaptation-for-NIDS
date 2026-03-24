@@ -1,5 +1,3 @@
-# flowing.py
-
 import threading
 import time
 from collections import defaultdict
@@ -49,7 +47,8 @@ def default_flow_key(pkt):
 class FlowManager:
     def __init__(
         self,
-        flow_timeout: float = 5.0,
+        flow_timeout: float = 5.0,     # Idle timeout: seconds of inactivity
+        active_timeout: float = 30.0,  # 🔥 NEW: Active timeout: max lifespan of a flow
         emit_interval: float = 1.0,
         max_flows: int = 5000,
         keyfn: Callable = None,
@@ -57,19 +56,21 @@ class FlowManager:
     ):
         """
         flow_timeout: seconds of inactivity before flow is emitted
+        active_timeout: maximum seconds a flow can stay open before forced emission
         emit_interval: how often to check flows
         max_flows: max number of flows (memory safety)
         packet_capacity_per_flow: max packets per flow
         """
 
         self.flow_timeout = float(flow_timeout)
+        self.active_timeout = float(active_timeout) # Apply active timeout
         self.emit_interval = float(emit_interval)
         self.max_flows = int(max_flows)
         self.packet_capacity_per_flow = int(packet_capacity_per_flow)
 
         self.keyfn = keyfn if keyfn else default_flow_key
 
-        # flow_key -> {"pkts": [...], "last_seen": timestamp}
+        # flow_key -> {"pkts": [...], "last_seen": timestamp, "start_time": timestamp}
         self.flows = {}
         self.lock = threading.Lock()
 
@@ -99,7 +100,8 @@ class FlowManager:
             if key not in self.flows:
                 self.flows[key] = {
                     "pkts": [],
-                    "last_seen": ts
+                    "last_seen": ts,
+                    "start_time": ts  # 🔥 NEW: Record exactly when the flow was created
                 }
 
             flow = self.flows[key]
@@ -166,7 +168,12 @@ class FlowManager:
 
             flow = self.flows[key]
 
-            if now - flow["last_seen"] < self.flow_timeout:
+            idle_time = now - flow["last_seen"]
+            active_time = now - flow["start_time"]
+
+            # 🔥 NEW: Check BOTH idle and active timeouts. 
+            # If neither threshold is crossed, keep the flow in memory.
+            if idle_time < self.flow_timeout and active_time < self.active_timeout:
                 return
 
             pkts = flow["pkts"]

@@ -91,57 +91,50 @@ def map_labels(df):
 
 
 # ----------------------------
-# Build ML feature vectors
+# Build ML feature vectors (CORRECTED FOR COSINE & NIDS)
 # ----------------------------
 def build_feature_vectors(df):
+    def norm(series, max_val):
+        return np.minimum(series, max_val) / max_val
 
+    # Base values
     pkt_count = df["packets_count"].clip(lower=1)
+    duration = df.get("flow_duration", pd.Series(1.0, index=df.index)).replace(0, 0.001)
+    total_bytes = df.get("flow_bytes", df.get("bytes_rate", 0) * duration)
 
-    # ----------------------------
-    # Ratios
-    # ----------------------------
+    # 1. SHAPE FEATURES (Full strength, no 0.2 penalty!)
     syn_ratio = df["syn_flag_counts"] / pkt_count
     rst_ratio = df["rst_flag_counts"] / pkt_count
+    udp_ratio = (df["protocol"] == 17).astype(float)
+    icmp_ratio = (df["protocol"] == 1).astype(float)
 
-    udp_ratio = (df["protocol"] == 17).astype(int)
-    icmp_ratio = (df["protocol"] == 1).astype(int)
+    # 2. VELOCITY FEATURES (Raised caps so attacks separate from normal traffic)
+    pps = pkt_count / duration
+    bps = total_bytes / duration
+    pps = norm(pps, 50000)      # Max cap: 50k packets per sec
+    bps = norm(bps, 10000000)   # Max cap: 10MB per sec
 
-    # ----------------------------
-    # Log + normalization
-    # ----------------------------
-    packet_count_log = np.log1p(pkt_count) / 10.0
-    unique_ports_log = np.log1p(df["dst_port"]) / 10.0
+    # 3. FOOTPRINT FEATURES
+    pkt_size_std = norm(df["payload_bytes_std"], 1500)
+    avg_interarrival = norm(df["packets_IAT_mean"].clip(upper=2000), 2000)
 
-    # ----------------------------
-    # Timing
-    # ----------------------------
-    avg_interarrival = df["packets_IAT_mean"].clip(upper=2000) / 2000.0
+    # 🔥 CRITICAL FIX: We cannot use literal dst_port.
+    # Since the CSV groups flows, we assume the dataset aggregates scans differently. 
+    # For now, we will zero this out in training so the model doesn't falsely associate 
+    # port 443 with "Normal" and port 8080 with "Attack". Your live WindowManager 
+    # will handle unique port counting correctly.
+    unique_ports_log = pd.Series(0.0, index=df.index) 
 
-    # ----------------------------
-    # Packet size
-    # ----------------------------
-    pkt_size_std = df["payload_bytes_std"].clip(upper=1500) / 1500.0
+    packet_count_log = norm(np.log1p(pkt_count), 10)
 
-    # ----------------------------
-    # Rate features (DIRECTLY AVAILABLE ✅)
-    # ----------------------------
-    pps = df["packets_rate"].clip(upper=10000) / 10000.0
-    bps = df["bytes_rate"].clip(upper=1_000_000) / 1_000_000.0
+    # 4. TIME FEATURE
+    duration_log = norm(np.log1p(duration), 10)
 
-    # ----------------------------
-    # Final vector (10D)
-    # ----------------------------
+    # FINAL VECTOR (11 FEATURES)
     vectors = np.column_stack([
-        packet_count_log,
-        unique_ports_log,
-        syn_ratio,
-        rst_ratio,
-        udp_ratio,
-        icmp_ratio,
-        avg_interarrival,
-        pkt_size_std,
-        pps,
-        bps
+        syn_ratio, rst_ratio, udp_ratio, icmp_ratio,
+        pps, bps, pkt_size_std, avg_interarrival,
+        unique_ports_log, packet_count_log, duration_log
     ])
 
     return vectors

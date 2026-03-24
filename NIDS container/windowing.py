@@ -127,7 +127,6 @@ class WindowManager:
             time.sleep(self.emit_interval)
 
     def _maybe_emit_for_key(self, key, now_ts):
-        """Emit a list of packets for a key that are within the sliding window."""
         with self.windows_lock:
             if key not in self.windows:
                 return
@@ -135,8 +134,6 @@ class WindowManager:
 
             # remove items older than (now - window_seconds)
             cutoff = now_ts - self.window_seconds
-            # find first index that >= cutoff
-            # since deque doesn't support bisect, pop left until oldest >= cutoff
             while dq and dq[0][0] < cutoff:
                 dq.popleft()
 
@@ -145,11 +142,13 @@ class WindowManager:
                 snapshot = [p for (_t, p) in dq]
             else:
                 snapshot = []
+                
+            # 🔥 FIX: Prevent memory leak from inactive IPs
+            if not dq:
+                del self.windows[key]
 
         if snapshot and self._callback:
             try:
-                # callback must be fast; heavy processing should be offloaded
                 self._callback(key, snapshot)
             except Exception as e:
-                # never let user callback break the loop
                 print("[windowing] callback error:", e)

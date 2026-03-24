@@ -23,8 +23,10 @@ wm = WindowManager(
 
 fm = FlowManager(
     flow_timeout=2.0,
+    active_timeout=2.0,
     emit_interval=1.0,
-    max_flows=1000
+    max_flows=1000,
+    packet_capacity_per_flow=5000
 )
 
 
@@ -68,5 +70,6 @@ def start_sniffer(model, interface="eth0"):
     sniff(
         iface=interface,
         prn=combined_handler,
-        store=False
+        store=False,
+        filter="src net 172.16.0.0/12 and dst net 172.16.0.0/12"
     )

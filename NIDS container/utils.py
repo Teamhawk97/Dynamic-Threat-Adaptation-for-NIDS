@@ -79,6 +79,7 @@ def features_from_packets(pkts):
     # Interarrival
     interarrival = 0.0
     if len(timestamps) > 1:
+        timestamps.sort()
         diffs = [t2 - t1 for t1, t2 in zip(timestamps, timestamps[1:])]
         interarrival = float(np.mean(diffs)) * 1000.0  # ms
 
