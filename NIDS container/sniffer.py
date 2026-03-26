@@ -4,6 +4,7 @@ from scapy.all import sniff
 from detection import analyze_packet, handle_window, handle_flow
 from windowing import WindowManager
 from flowing import FlowManager
+from swarm_manager import swarm
 
 # ----------------------------
 # TOGGLES
@@ -29,6 +30,12 @@ fm = FlowManager(
     packet_capacity_per_flow=5000
 )
 
+def promotion_check(packet):
+    if swarm.is_leader:
+        print("\n[NIDS] Shutting down packet capture.")
+        print("[SWARM] Transitioning to Dedicated Control Plane...\n")
+        return True # Returning True tells Scapy to stop sniffing immediately!
+    return False
 
 def start_sniffer(model, interface="eth0"):
     print(f"[+] Starting packet capture on {interface} ...")
@@ -71,5 +78,6 @@ def start_sniffer(model, interface="eth0"):
         iface=interface,
         prn=combined_handler,
         store=False,
-        filter="src net 172.16.0.0/12 and dst net 172.16.0.0/12"
+        filter="src net 172.16.0.0/12 and dst net 172.16.0.0/12",
+        stop_filter=promotion_check
     )

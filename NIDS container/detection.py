@@ -3,9 +3,11 @@
 import time
 import math
 import socket
+import requests
 from utils import features_from_packets
 from unknown_buffer import UnknownBuffer
 from anomaly_detector import StatisticalAnomalyDetector
+from swarm_manager import swarm
 
 # ----------------------------
 # Configuration
@@ -31,6 +33,7 @@ unknown_buffer = UnknownBuffer()
 anomaly_detector = StatisticalAnomalyDetector()
 
 SELF_IP = socket.gethostbyname(socket.gethostname())
+#LEADER_URL = "172.16.0.3:8000" # Default Leader URL (will be updated if this node becomes leader)
 
 
 # ----------------------------
@@ -144,13 +147,26 @@ def run_ml(key, fv, model, context):
         print(f"[ML][{context}] UNKNOWN behavior from {key} (dist={dist:.2f})")
         unknown_buffer.add(vector)
         
-        # 🔥 FIX: Apply Local Few-Shot Learning so the container immunizes itself!
+        # Generate the name
         zd_name = f"ZD_LOCAL_{int(time.time())}"
         model.add_example(zd_name, vector)
+        model.save("/root/app/model.json")
         print(f"   [+] Local immunity generated: {zd_name}")
         
+        # Push to Hive Mind
+        try:
+            payload = {
+                "label": zd_name,  # <-- FIXED TYPO HERE!
+                "prototype": vector, 
+                "container_id": swarm.my_ip
+            }
+            # Use dynamic URL from the Swarm Manager
+            requests.post(f"{swarm.get_leader_url()}/update_global_model", json=payload, timeout=2)
+            print(f"   [FL-SYNC] 🌐 Successfully beamed {zd_name} to the Hive Mind!")
+        except Exception as e:
+            print(f"   [FL-ERROR] Could not reach Leader: {e}")
+        
     else:
-        # Optional: Comment this out later if normal traffic spams your console too much
         print(f"[ML][{context}] KNOWN:{label} from {key} (dist={dist:.2f})")
 
 
