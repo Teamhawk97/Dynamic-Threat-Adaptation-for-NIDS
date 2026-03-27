@@ -3,7 +3,8 @@ import os
 import math
 from typing import List, Dict
 
-MODEL_FILE = "global_model.json"
+# 🔥 FIX 1: Point to the Shared Docker Volume!
+MODEL_FILE = "/shared/global_model.json"
 MERGE_THRESHOLD = 0.15
 
 # Global state
@@ -13,16 +14,22 @@ def load_memory():
     """Wakes up and reads the hard drive."""
     global global_classes
     if os.path.exists(MODEL_FILE):
-        with open(MODEL_FILE, "r") as f:
-            global_classes = json.load(f)
-        print(f"[LEADER-MODEL] Memory Restored: Loaded {len(global_classes)} immunities from disk.")
+        # 🔥 FIX 2: Protect against empty/corrupted JSON files!
+        try:
+            with open(MODEL_FILE, "r") as f:
+                global_classes = json.load(f)
+            print(f"[LEADER-MODEL] Memory Restored: Loaded {len(global_classes)} immunities from disk.")
+        except json.JSONDecodeError:
+            print("[LEADER-MODEL] ⚠️ Shared memory file is empty. Starting fresh.")
+            global_classes = {}
     else:
         global_classes = {}
 
 def save_memory():
     """Saves the current state to the hard drive."""
     with open(MODEL_FILE, "w") as f:
-        json.dump(global_classes, f)
+        # I added indent=4 just so it's readable if you ever open the file!
+        json.dump(global_classes, f, indent=4) 
 
 def euclidean_distance(v1: List[float], v2: List[float]) -> float:
     """Calculates the mathematical difference between two attacks."""
