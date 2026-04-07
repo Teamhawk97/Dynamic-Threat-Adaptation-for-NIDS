@@ -18,7 +18,7 @@ class SwarmManager:
         
         # 🔥 THE PATCH: Zero-Trust Blocklist & Penalty Box
         self.blocked_ips = []
-        self.failed_leaders = set() # <-- NEW: The Penalty Box
+        self.failed_leaders = set() # <-- The Penalty Box
         try:
             attacker_ip = socket.gethostbyname("attacker")
             self.blocked_ips.append(attacker_ip)
@@ -47,7 +47,7 @@ class SwarmManager:
         for octet in self.potential_nodes:
             ip = f"{self.subnet_prefix}{octet}"
             
-            # 🔥 THE FIX: Ignore attackers AND ignore Zombie Leaders!
+            # 🔥 Ignore attackers AND ignore Zombie Leaders!
             if ip in self.blocked_ips or ip in self.failed_leaders:
                 continue
                 
@@ -73,6 +73,13 @@ class SwarmManager:
         else:
             self.current_leader_ip = new_leader
             print(f"[SWARM] Election complete. {new_leader} is the new Leader.")
+            
+            # ==========================================
+            # 🔥 THE FIX: THE GRACE PERIOD
+            # ==========================================
+            print(f"[SWARM] Giving new leader {new_leader} a 5-second grace period to boot API...")
+            time.sleep(5) 
+            # ==========================================
 
     def heartbeat_loop(self, model):
         while True:

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NIDS Swarm Dashboard</title>
+    <style>
+        body { 
+            font-family: 'Courier New', Courier, monospace; 
+            background-color: #121212; 
+            color: #00ff00; 
+            margin: 0; 
+            padding: 20px; 
+        }
+        h1 { 
+            text-align: center; 
+            color: #ffffff; 
+            letter-spacing: 2px;
+        }
+        .grid { 
+            display: flex; 
+            gap: 20px; 
+            justify-content: center; 
+            flex-wrap: wrap; 
+        }
+        .card { 
+            background-color: #1e1e1e; 
+            border: 1px solid #333; 
+            border-radius: 8px; 
+            padding: 15px; 
+            width: 30%; 
+            min-width: 320px; 
+            box-shadow: 0 4px 8px rgba(0,0,0,0.5); 
+        }
+        .card h2 { 
+            margin-top: 0; 
+            color: #ffcc00; 
+            text-align: center; 
+            border-bottom: 1px solid #444; 
+            padding-bottom: 10px; 
+        }
+        .status { 
+            font-weight: bold; 
+            margin-bottom: 10px; 
+            color: #ccc;
+        }
+        .status span { 
+            background: #000; 
+            padding: 4px 8px; 
+            border-radius: 4px; 
+            border: 1px solid #444;
+        }
+        .classes { 
+            font-size: 0.9em; 
+            margin-bottom: 15px; 
+            color: #aaa; 
+            line-height: 1.4;
+        }
+        .logs-title {
+            color: #fff;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .logs { 
+            background-color: #000; 
+            color: #00ff00; 
+            padding: 10px; 
+            height: 350px; 
+            overflow-y: auto; 
+            border-radius: 4px; 
+            font-size: 0.85em; 
+            border: 1px solid #444; 
+        }
+    </style>
+</head>
+<body>
+
+<h1>Federated NIDS Swarm Monitor (SIEM)</h1>
+
+<div class="grid">
+    <div class="card">
+        <h2>Leader Node</h2>
+        <div class="status">Status: <span id="status-leader">WAITING...</span></div>
+        <div class="classes"><strong>Global Immunity Memory:</strong><br><span id="classes-leader">Fetching from API...</span></div>
+        <div class="logs-title">Terminal Logs:</div>
+        <div class="logs" id="logs-leader">Initializing Hive Mind on Port 8000...</div>
+    </div>
+
+    <div class="card">
+        <h2>Victim Node 1</h2>
+        <div class="status">Status: <span id="status-victim1">WAITING...</span></div>
+        <div class="classes"><strong>Local Model Memory:</strong><br><span id="classes-victim1">Synced with Leader</span></div>
+        <div class="logs-title">Terminal Logs:</div>
+        <div class="logs" id="logs-victim1">Forwarding logs to Central SIEM...</div>
+    </div>
+
+    <div class="card">
+        <h2>Victim Node 2</h2>
+        <div class="status">Status: <span id="status-victim2">WAITING...</span></div>
+        <div class="classes"><strong>Local Model Memory:</strong><br><span id="classes-victim2">Synced with Leader</span></div>
+        <div class="logs-title">Terminal Logs:</div>
+        <div class="logs" id="logs-victim2">Forwarding logs to Central SIEM...</div>
+    </div>
+</div>
+
+<script>
+    // Only one API endpoint is needed now!
+    const LEADER_API = 'http://localhost:8000/api/dashboard';
+
+    async function fetchUnifiedDashboard() {
+        try {
+            const response = await fetch(LEADER_API);
+            if (!response.ok) throw new Error("Leader Offline");
+            const data = await response.json();
+
+            // Function to update a specific card
+            function updateCard(nodeId, nodeData) {
+                if (!nodeData) return;
+                
+                // Update Status
+                const statusEl = document.getElementById(`status-${nodeId}`);
+                statusEl.innerText = nodeData.status;
+                if (nodeData.status.includes("LEADER") || nodeData.status.includes("HIVE MIND")) {
+                    statusEl.style.color = "gold";
+                } else {
+                    statusEl.style.color = "lime";
+                }
+
+                // Update Classes (Only Leader has global classes in this design)
+                if (nodeData.classes) {
+                    document.getElementById(`classes-${nodeId}`).innerText = nodeData.classes.join(", ");
+                }
+                
+                // Update Logs
+                const logBox = document.getElementById(`logs-${nodeId}`);
+                const isScrolledToBottom = logBox.scrollHeight - logBox.clientHeight <= logBox.scrollTop + 2;
+                
+                logBox.innerHTML = nodeData.logs.join("<br>");
+                
+                if (isScrolledToBottom) {
+                    logBox.scrollTop = logBox.scrollHeight;
+                }
+            }
+
+            // Update all three cards using the single JSON payload!
+            updateCard('leader', data.leader);
+            updateCard('victim1', data.victim1);
+            updateCard('victim2', data.victim2);
+
+        } catch (error) {
+            // If the Leader crashes (Election time!)
+            ['leader', 'victim1', 'victim2'].forEach(nodeId => {
+                const statusEl = document.getElementById(`status-${nodeId}`);
+                statusEl.innerText = "OFFLINE / ELECTION IN PROGRESS";
+                statusEl.style.color = "red";
+            });
+        }
+    }
+
+    // Poll the Leader every 1 second
+    setInterval(fetchUnifiedDashboard, 1000);
+    fetchUnifiedDashboard();
+</script>
+
+</body>
+</html>

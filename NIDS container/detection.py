@@ -1,5 +1,4 @@
 # detection.py
-
 import time
 import math
 import socket
@@ -136,8 +135,13 @@ def detect_rules(key, fv, context):
 # ----------------------------
 # ML CLASSIFICATION ONLY
 # ----------------------------
-def run_ml(key, fv, model, context):
+NODE_ID = "A"
+def run_ml(key, fv, model, context, manual_vector=None):
     vector = build_ml_vector(fv)
+    if manual_vector:
+        vector = manual_vector
+    else:
+        vector = build_ml_vector(fv)
     label, dist = model.classify(vector)
 
     if not model.classes:
@@ -147,8 +151,32 @@ def run_ml(key, fv, model, context):
         print(f"[ML][{context}] UNKNOWN behavior from {key} (dist={dist:.2f})")
         unknown_buffer.add(vector)
         
-        # Generate the name
-        zd_name = f"ZD_LOCAL_{int(time.time())}"
+        # ==========================================
+        # PERSISTENT DYNAMIC NAMING (ZD_Local_X#_...)
+        # ==========================================
+        max_id = 0
+        search_prefix = f"ZD_Local_{NODE_ID}"
+        
+        # Check existing classes in memory to find the highest number for THIS specific node
+        for existing_label in model.classes.keys():
+            if existing_label.startswith(search_prefix):
+                # Splits "ZD_Local_A1_1712345678" into ["ZD", "Local", "A1", "1712345678"]
+                parts = existing_label.split("_")
+                if len(parts) >= 4:
+                    node_and_num = parts[2] # Grabs the "A1" or "B1" part
+                    try:
+                        # Strip the Node ID letter(s) and convert the rest to an integer
+                        num_str = node_and_num[len(NODE_ID):]
+                        num = int(num_str) 
+                        if num > max_id:
+                            max_id = num
+                    except ValueError:
+                        pass # Ignore if it doesn't parse cleanly
+        
+        next_id = max_id + 1
+        zd_name = f"ZD_Local_{NODE_ID}{next_id}_{int(time.time())}"
+        # ==========================================
+        
         model.add_example(zd_name, vector)
         model.save("/root/app/model.json")
         print(f"   [+] Local immunity generated: {zd_name}")
@@ -156,7 +184,7 @@ def run_ml(key, fv, model, context):
         # Push to Hive Mind
         try:
             payload = {
-                "label": zd_name,  # <-- FIXED TYPO HERE!
+                "label": zd_name,  
                 "prototype": vector, 
                 "container_id": swarm.my_ip
             }
@@ -165,7 +193,7 @@ def run_ml(key, fv, model, context):
             print(f"   [FL-SYNC] 🌐 Successfully beamed {zd_name} to the Hive Mind!")
         except Exception as e:
             print(f"   [FL-ERROR] Could not reach Leader: {e}")
-        
+            
     else:
         print(f"[ML][{context}] KNOWN:{label} from {key} (dist={dist:.2f})")
 

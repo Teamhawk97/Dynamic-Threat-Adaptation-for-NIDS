@@ -14,7 +14,7 @@ class PrototypeClassifier:
     def __init__(
         self,
         distance: str = "cosine",        # 🔥 DEFAULT FIXED
-        known_threshold: float = 0.2,    # 🔥 IMPORTANT (for cosine)
+        known_threshold: float = 0.15,    # 🔥 IMPORTANT (for cosine)
         min_samples_per_class: int = 1,
     ):
         self.distance = distance
